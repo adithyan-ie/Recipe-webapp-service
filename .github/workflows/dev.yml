@@ -119,20 +119,20 @@ jobs:
           echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
 
       
-      - name: Enable Managed Identity for ACR pull
-        run: |
-          az webapp config set \
-            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --generic-configurations '{"acrUseManagedIdentityCreds": true}'
+      # - name: Enable Managed Identity for ACR pull
+      #   run: |
+      #     az webapp config set \
+      #       --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+      #       --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+      #       --generic-configurations '{"acrUseManagedIdentityCreds": true}'
 
-      - name: Configure App Service Container Image
-        run: |
-          az webapp config container set \
-            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --docker-custom-image-name ${{ needs.docker-build-push.outputs.image }} \
-            --docker-registry-server-url https://${{ secrets.ACR_LOGIN_SERVER }}
+      # - name: Configure App Service Container Image
+      #   run: |
+      #     az webapp config container set \
+      #       --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+      #       --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+      #       --docker-custom-image-name ${{ needs.docker-build-push.outputs.image }} \
+      #       --docker-registry-server-url https://${{ secrets.ACR_LOGIN_SERVER }}
 
       - name: Deploy to slot
         if: steps.tf.outputs.use_slots == 'true'
@@ -148,7 +148,7 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-          images: ${{ needs.docker-build-push.outputs.image }}
+           images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
 
 
       - name: Restart DEV slot
