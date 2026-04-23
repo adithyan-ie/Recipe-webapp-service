@@ -36,6 +36,6 @@ jobs:
         working-directory: infra
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/release'
+        if: github.ref == 'refs/heads/developement'
         run: terraform apply -auto-approve
         working-directory: infra
