@@ -118,12 +118,20 @@ jobs:
         run: |
           echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
 
+      - name: Configure App Service Container Image
+        run: |
+          az webapp config container set \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --docker-custom-image-name ${{ needs.docker-build-push.outputs.image }} \
+            --docker-registry-server-url https://${{ secrets.ACR_LOGIN_SERVER }}
+
       - name: Deploy to slot
         if: steps.tf.outputs.use_slots == 'true'
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-          slot-name: development
+          slot-name: staging
           images: ${{ needs.docker-build-push.outputs.image }}
 
       # Deploy to main app (B1)
@@ -141,7 +149,7 @@ jobs:
           az webapp restart \
             --name ${{ secrets.AZURE_WEBAPP_NAME }} \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --slot dev
+            --slot staging
 
       - name: Smoke test DEV
         if: steps.tf.outputs.use_slots == 'true'
