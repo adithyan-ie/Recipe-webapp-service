@@ -77,9 +77,6 @@ jobs:
     needs: docker-build-push
     runs-on: ubuntu-latest
 
-    environment:
-        name: dev
-
     permissions:
         id-token: write
         contents: read
