@@ -1,7 +1,7 @@
 name: Terraform IaC
 on:
   push:
-    branches: [development, main]
+    branches: [test-work]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform.yml'
