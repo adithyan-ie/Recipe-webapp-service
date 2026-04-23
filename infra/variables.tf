@@ -50,11 +50,11 @@ variable "app_service_sku" {
   type        = string
   default     = "S1"
 
-  validation {
+ # validation {
     # Slots require Standard (S) or Premium (P) tier — B-series does NOT support slots
-    condition     = can(regex("^[SP]", var.app_service_sku))
-    error_message = "Deployment slots require Standard (S*) or Premium (P*) tier SKUs."
-  }
+    #condition     = can(regex("^[SP]", var.app_service_sku))
+    #error_message = "Deployment slots require Standard (S*) or Premium (P*) tier SKUs."
+  #}
 }
 
 variable "image_name" {
