@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────
 
 resource_group_name = "rg-recipe-webapp-dev"
-location            = "canadacentral"
+location            = "spaincentral"
 environment         = "dev"
 app_name            = "recipe"
 
@@ -16,7 +16,7 @@ webapp_name = "recipe-backend-dev"
 acr_name = "recipewebappacrdev"
 
 acr_sku         = "Basic"      # Upgrade to Standard/Premium for geo-replication
-app_service_sku = "S1"       # P1v3 minimum recommended for production + slots
+app_service_sku = "P1v4"       # P1v3 minimum recommended for production + slots
 
 image_name     = "spring-app:bootstrap"
 spring_profile = "dev"
