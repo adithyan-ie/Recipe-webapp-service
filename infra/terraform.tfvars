@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────
 
 resource_group_name = "rg-recipe-webapp-dev"
-location            = "spaincentral"
+location            = "switzerlandnorth"
 environment         = "dev"
 app_name            = "recipe"
 
