@@ -148,7 +148,7 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-           images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
+          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
 
 
       - name: Restart DEV slot
