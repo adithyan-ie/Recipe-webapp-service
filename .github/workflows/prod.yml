@@ -4,11 +4,12 @@
 name: Scan, Run Unit and BDD Test and Build App
 
 on:
-  push:
-    branches: [ release ]
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["terraform Infra"]   # must match the workflow name in terraform.yml
+    types:
+      - completed
 
 jobs:
 
@@ -46,72 +47,100 @@ jobs:
 
   
   docker-build-push:
-    needs: build
+    needs: run-test
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     permissions:
       contents: read
-      packages: write   # IMPORTANT for GHCR
+      packages: write
+      id-token: write
+
+    outputs:
+      image: ${{ steps.image.outputs.image }}
 
     steps:
-      # 1️⃣ Checkout code
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2️⃣ Log in to GitHub Container Registry
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - name: Set image tag
+        id: image
+        run: |
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
+      - name: Azure Login
+        uses: azure/login@v2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # 3️⃣ Set up Docker build
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
 
-      # 4️⃣ Build Docker image
-      - name: Build Docker image
+      - name: Build & Push
         run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/recipe-backend:${{ github.run_number }} .
+          docker build -t ${{ steps.image.outputs.image }} .
+          docker push ${{ steps.image.outputs.image }}
 
-      # 5️⃣ Push Docker image
-      - name: Push Docker image
+  deploy-prod:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+
+    environment:
+     name: production
+
+    permissions:
+        id-token: write
+        contents: read
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ─────────────────────────────────────
+      # Terraform read-only (state source)
+      # ─────────────────────────────────────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init (infra state only)
+        working-directory: infra
+        env:
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
-          docker push ghcr.io/${{ github.repository_owner }}/recipe-backend:${{ github.run_number }}
+          terraform init \
+            -backend-config="resource_group_name=rg-tfstate" \
+            -backend-config="storage_account_name=sttfstaterecipewebapp" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=recipe-webapp.tfstate"
 
+      - name: Read use_slots from Terraform
+        id: tf
+        working-directory: infra
+        run: |
+          echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
 
+      - name: Swap staging -> production
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          az webapp deployment slot swap \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --slot staging \
+            --target-slot production
 
-  # deploy-staging:
-  #   needs: docker-build-push
-  #   runs-on: ubuntu-latest
-
-  #   environment:
-  #     name: staging
-
-  #   steps:
-  #     - name: Azure Login
-  #       uses: azure/login@v2
-  #       with:
-  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-  #     - name: Deploy container to staging slot
-  #       uses: azure/webapps-deploy@v3
-  #       with:
-  #         app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-  #         slot-name: staging
-  #         images: ${{ needs.docker-build-push.outputs.image }}
-
-  #     - name: Restart staging
-  #       run: |
-  #         az webapp restart \
-  #           --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-  #           --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-  #           --slot staging
-
-  #     - name: Smoke test
-  #       run: |
-  #         curl -f https://${{ secrets.AZURE_WEBAPP_NAME }}-staging.azurewebsites.net/actuator/health
-
+      
   # deploy-production:
   # needs: deploy-staging
   # runs-on: ubuntu-latest

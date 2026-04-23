@@ -3,14 +3,16 @@ name: Dev - Test, Build & Deploy (Container)
 on:
   push:
     branches: [ development ]
-  pull_request:
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["terraform Infra"]   # must match the workflow name in terraform.yml
+    types:
+      - completed
 
 jobs:
 
   run-test:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +39,12 @@ jobs:
   docker-build-push:
     needs: run-test
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     permissions:
       contents: read
       packages: write
+      id-token: write
 
     outputs:
       image: ${{ steps.image.outputs.image }}
@@ -51,54 +55,118 @@ jobs:
       - name: Set image tag
         id: image
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/recipe-backend:${{ github.sha }}
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - name: Azure Login
+        uses: azure/login@v2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Build & Push
         run: |
           docker build -t ${{ steps.image.outputs.image }} .
           docker push ${{ steps.image.outputs.image }}
 
-  # deploy-dev:
-  #   needs: docker-build-push
-  #   runs-on: ubuntu-latest
+  deploy-dev:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
 
- # environment:
-  #   name: dev
+    permissions:
+        id-token: write
+        contents: read
 
-  # permissions:
-  #   id-token: write
-  #   contents: read
+    steps:
 
-  # steps:
-  #   - name: Azure Login (OIDC)
-  #     uses: azure/login@v2
-  #     with:
-  #       client-id: ${{ secrets.AZURE_CLIENT_ID }}
-  #       tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-  #       subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: actions/checkout@v4
 
-  #     - name: Deploy container to DEV slot
-  #       uses: azure/webapps-deploy@v3
-  #       with:
-  #         app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-  #         slot-name: dev   # 👈 create this slot in Azure
-  #         images: ${{ needs.docker-build-push.outputs.image }}
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-  #     - name: Restart DEV slot
-  #       run: |
-  #         az webapp restart \
-  #           --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-  #           --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-  #           --slot dev
+      # ─────────────────────────────────────
+      # Terraform read-only (state source)
+      # ─────────────────────────────────────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-  #     - name: Smoke test DEV
-  #       run: |
-  #         curl -f https://${{ secrets.AZURE_WEBAPP_NAME }}-dev.azurewebsites.net/actuator/health
+      - name: Terraform Init (infra state only)
+        working-directory: infra
+        env:
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=rg-tfstate" \
+            -backend-config="storage_account_name=sttfstaterecipewebapp" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=recipe-webapp.tfstate"
+
+      - name: Read use_slots from Terraform
+        id: tf
+        working-directory: infra
+        run: |
+          echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
+
+      
+      # - name: Enable Managed Identity for ACR pull
+      #   run: |
+      #     az webapp config set \
+      #       --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+      #       --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+      #       --generic-configurations '{"acrUseManagedIdentityCreds": true}'
+
+      # - name: Configure App Service Container Image
+      #   run: |
+      #     az webapp config container set \
+      #       --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+      #       --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+      #       --docker-custom-image-name ${{ needs.docker-build-push.outputs.image }} \
+      #       --docker-registry-server-url https://${{ secrets.ACR_LOGIN_SERVER }}
+
+      - name: Deploy to slot
+        if: steps.tf.outputs.use_slots == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          slot-name: staging
+          images: ${{ needs.docker-build-push.outputs.image }}
+
+      # Deploy to main app (B1)
+      - name: Deploy to main app
+        if: steps.tf.outputs.use_slots != 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
+
+
+      - name: Restart DEV slot
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          az webapp restart \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --slot staging
+
+      - name: Smoke test DEV
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          curl -f https://${{ secrets.AZURE_WEBAPP_NAME }}-dev.azurewebsites.net/actuator/health
+
+      - name: Restart main app
+        if: steps.tf.outputs.use_slots != 'true'
+        run: |
+          az webapp restart \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}

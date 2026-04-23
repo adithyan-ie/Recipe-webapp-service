@@ -1,1 +1,9 @@
-{\rtf1}
+# Terraform state files
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+
+# Terraform working directory
+infra/.terraform/
+
+# Terraform lock file (optional, depending on your workflow)
+infra/.terraform.lock.hcl

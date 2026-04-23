@@ -28,7 +28,12 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=rg-tfstate" \
+            -backend-config="storage_account_name=sttfstaterecipewebapp" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=recipe-webapp.tfstate"
         working-directory: infra
 
       - name: Terraform Plan
@@ -36,6 +41,6 @@ jobs:
         working-directory: infra
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/release'
+        if: github.ref != 'refs/heads/main'
         run: terraform apply -auto-approve
         working-directory: infra
