@@ -1,7 +1,7 @@
 variable "resource_group_name" {
   description = "Name of the Azure Resource Group"
   type        = string
-  default     = "rg-recipe-webapp-prod"
+  default     = "rg-recipe-webapp-dev"
 }
 
 variable "location" {
@@ -13,7 +13,7 @@ variable "location" {
 variable "environment" {
   description = "Deployment environment (prod, staging, dev)"
   type        = string
-  default     = "prod"
+  default     = "dev"
 }
 
 variable "app_name" {
@@ -48,7 +48,7 @@ variable "acr_sku" {
 variable "app_service_sku" {
   description = "App Service Plan SKU. Use P1v3+ for deployment slots in production."
   type        = string
-  default     = "P1v3"
+  default     = "S1"
 
   validation {
     # Slots require Standard (S) or Premium (P) tier — B-series does NOT support slots
@@ -60,11 +60,11 @@ variable "app_service_sku" {
 variable "image_name" {
   description = "Container image name inside ACR (without tag), e.g. recipe-backend"
   type        = string
-  default     = "recipe-backend"
+  default     = "spring-app:bootstrap"
 }
 
 variable "spring_profile" {
   description = "Spring Boot active profile for the production slot"
   type        = string
-  default     = "prod"
+  default     = "dev"
 }
