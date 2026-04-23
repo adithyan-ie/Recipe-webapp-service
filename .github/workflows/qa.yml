@@ -1,0 +1,73 @@
+name: QA — Backend Pipeline
+on:
+  push:
+    branches: [qa]
+  workflow_dispatch:
+
+jobs:
+  sast-and-test:
+    name: SAST + Tests + Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests with coverage
+        run: mvn -B verify
+
+      - name: SonarQube scan (skipped if SONAR_TOKEN not set)
+        if: env.SONAR_TOKEN != ''
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn -B sonar:sonar \
+            -Dsonar.projectKey=recipe-webapp-service \
+            -Dsonar.host.url=https://sonarcloud.io || echo "Sonar scan reported issues; non-blocking"
+
+  sca-dependency-check:
+    name: SCA — OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        continue-on-error: true
+        with:
+          project: 'recipe-webapp-service'
+          path: '.'
+          format: 'HTML'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+
+      - name: Upload OWASP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report
+          path: reports/
+
+  deploy-qa:
+    name: Deploy to QA (if QA env exists)
+    needs: [sast-and-test, sca-dependency-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder — QA App Service deploy
+        run: |
+          echo "QA environment deployment placeholder."
+          echo "Reuses dev-environment commands against recipe-backend-qa once provisioned."

@@ -1,0 +1,149 @@
+name: RELEASE — Docker Build + Trivy + ACR + Slot Swap
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+env:
+  ACR_NAME: recipewebappacrdev
+  IMAGE_NAME: recipe-backend
+  AZURE_WEBAPP_NAME: recipe-backend-dev
+  RESOURCE_GROUP: rg-recipe-webapp-dev
+
+jobs:
+  build-scan-push:
+    name: Build + Trivy Scan + ACR Push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Maven build
+        run: mvn -B package -DskipTests
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: ACR login
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Docker build
+        run: |
+          docker build \
+            -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            .
+
+      - name: Trivy scan for CRITICAL and HIGH CVEs
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: '${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-report.txt'
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-report
+          path: trivy-report.txt
+
+      - name: Docker push to ACR
+        run: |
+          docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker tag ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:staging
+          docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:staging
+
+  deploy-staging:
+    name: Deploy to Staging Slot (requires S1 plan)
+    needs: build-scan-push
+    environment: staging-approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Check if staging slot exists
+        id: slot_check
+        continue-on-error: true
+        run: |
+          set +e
+          az webapp deployment slot list \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[?name=='staging']" -o tsv | grep -q staging
+          echo "exists=$?" >> $GITHUB_OUTPUT
+
+      - name: Deploy to staging slot
+        if: steps.slot_check.outputs.exists == '0'
+        run: |
+          az webapp config container set \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot staging \
+            --container-image-name ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:staging \
+            --container-registry-url https://${{ env.ACR_NAME }}.azurecr.io
+          az webapp restart \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot staging
+
+      - name: No-slot fallback — deploy directly to production
+        if: steps.slot_check.outputs.exists != '0'
+        run: |
+          echo "Staging slot not found — SKU may still be B1. Deploying direct to production slot."
+          az webapp config container set \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --container-image-name ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --container-registry-url https://${{ env.ACR_NAME }}.azurecr.io
+          az webapp restart \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }}
+
+  slot-swap:
+    name: Slot Swap staging → production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Check if staging slot exists (swap only if so)
+        id: slot_check2
+        continue-on-error: true
+        run: |
+          set +e
+          az webapp deployment slot list \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[?name=='staging']" -o tsv | grep -q staging
+          echo "exists=$?" >> $GITHUB_OUTPUT
+
+      - name: Swap staging into production
+        if: steps.slot_check2.outputs.exists == '0'
+        run: |
+          az webapp deployment slot swap \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot staging \
+            --target-slot production
+
+      - name: Skip swap (slot not present)
+        if: steps.slot_check2.outputs.exists != '0'
+        run: echo "Slot swap skipped — no staging slot yet. Production already updated in previous step."

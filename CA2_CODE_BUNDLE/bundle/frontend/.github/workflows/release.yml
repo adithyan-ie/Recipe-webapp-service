@@ -1,0 +1,53 @@
+name: RELEASE — Frontend
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+env:
+  ACR_NAME: recipewebappacrdev
+  IMAGE_NAME: recipe-frontend
+  AZURE_WEBAPP_NAME: recipe-frontend-dev
+  RESOURCE_GROUP: rg-recipe-webapp-dev
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: npm run build --if-present
+      - name: Azure login
+        uses: azure/login@v2
+        with: { creds: '${{ secrets.AZURE_CREDENTIALS }}' }
+      - run: az acr login --name ${{ env.ACR_NAME }}
+      - name: Docker build
+        run: docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: '${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-fe-report.txt'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: trivy-fe-report, path: trivy-fe-report.txt }
+      - run: docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy:
+    needs: build-scan-push
+    environment: staging-approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with: { creds: '${{ secrets.AZURE_CREDENTIALS }}' }
+      - run: |
+          az webapp config container set \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --container-image-name ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --container-registry-url https://${{ env.ACR_NAME }}.azurecr.io
+          az webapp restart --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }}

@@ -1,0 +1,60 @@
+name: Terraform IaC
+on:
+  push:
+    branches: [development, main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action || 'plan' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform format check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        if: github.event.inputs.action != 'apply' && github.event.inputs.action != 'destroy'
+        env:
+          TF_VAR_mongodb_uri: ${{ secrets.MONGODB_URI }}
+        run: terraform plan -no-color
+
+      - name: Terraform apply
+        if: github.event.inputs.action == 'apply'
+        env:
+          TF_VAR_mongodb_uri: ${{ secrets.MONGODB_URI }}
+        run: terraform apply -auto-approve
