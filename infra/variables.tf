@@ -7,13 +7,13 @@ variable "resource_group_name" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "canadacentral"
+  default     = "switzerlandnorth"
 }
 
 variable "environment" {
   description = "Deployment environment (prod, staging, dev)"
   type        = string
-  default     = "dev"
+  default     = "development"
 }
 
 variable "app_name" {
@@ -48,7 +48,7 @@ variable "acr_sku" {
 variable "app_service_sku" {
   description = "App Service Plan SKU. Use P1v3+ for deployment slots in production."
   type        = string
-  default     = "S1"
+  default     = "B1"
 
  # validation {
     # Slots require Standard (S) or Premium (P) tier — B-series does NOT support slots

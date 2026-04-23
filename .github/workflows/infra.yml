@@ -28,7 +28,12 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=rg-tfstate" \
+            -backend-config="storage_account_name=sttfstate123" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=recipe-webapp.tfstate"
         working-directory: infra
 
       - name: Terraform Plan
@@ -36,6 +41,14 @@ jobs:
         working-directory: infra
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/developement'
+        if: github.ref != 'refs/heads/main'
         run: terraform apply -auto-approve
         working-directory: infra
+
+      - name: Save slot decision
+        run: echo "use_slots=$(terraform output -raw use_slots)" > tf-output.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tf-output
+          path: tf-output.txt

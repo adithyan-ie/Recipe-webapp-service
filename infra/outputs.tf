@@ -33,8 +33,10 @@ output "webapp_default_hostname" {
 }
 
 output "staging_slot_hostname" {
-  description = "Staging slot URL for smoke tests"
-  value       = "https://${azurerm_linux_web_app_slot.staging.default_hostname}"
+  value = try(
+    "https://${azurerm_linux_web_app_slot.staging[0].default_hostname}",
+    null
+  )
 }
 
 #── GitHub Actions secrets cheatsheet ────────
@@ -48,4 +50,9 @@ output "github_secrets_summary" {
     # AZURE_ACR_PASSWORD → run: terraform output -raw acr_admin_password
   }
   sensitive = true
+}
+
+output "use_slots" {
+  description = "Whether deployment slots are supported"
+  value       =  local.use_slots
 }

@@ -9,12 +9,7 @@ terraform {
   }
 
   # Uncomment to use Azure Blob as remote state backend
-  # backend "azurerm" {
-  #   resource_group_name  = "rg-tfstate"
-  #   storage_account_name = "sttfstate<unique>"
-  #   container_name       = "tfstate"
-  #   key                  = "recipe-webapp.terraform.tfstate"
-  # }
+  backend "azurerm" {}
 }
 
 provider "azurerm" {
@@ -100,6 +95,7 @@ resource "azurerm_linux_web_app" "main" {
 # # Staging Deployment Slot
 # # ─────────────────────────────────────────────
 resource "azurerm_linux_web_app_slot" "staging" {
+  count = local.use_slots ? 1 : 0
   name           = "staging"
   app_service_id = azurerm_linux_web_app.main.id
 
@@ -137,9 +133,10 @@ resource "azurerm_role_assignment" "webapp_acr_pull" {
 }
 
 resource "azurerm_role_assignment" "staging_acr_pull" {
+  count = local.use_slots ? 1 : 0
   scope                = azurerm_container_registry.acr.id
   role_definition_name = "AcrPull"
-  principal_id         = azurerm_linux_web_app_slot.staging.identity[0].principal_id
+  principal_id         = azurerm_linux_web_app_slot.staging[0].identity[0].principal_id
 
   depends_on = [
     azurerm_linux_web_app_slot.staging,
