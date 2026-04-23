@@ -86,15 +86,29 @@ jobs:
 
     steps:
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: tf-output
+      - uses: actions/checkout@v4
 
-      - name: Read slot flag
-        id: tf
+      # ─────────────────────────────────────
+      # Terraform read-only (state source)
+      # ─────────────────────────────────────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init (infra state only)
+        working-directory: infra
         run: |
-          source tf-output.txt
-          echo "use_slots=$use_slots" >> $GITHUB_OUTPUT
+          terraform init \
+            -backend-config="resource_group_name=rg-tfstate" \
+            -backend-config="storage_account_name=sttfstaterecipewebapp" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=recipe-webapp.tfstate"
+
+      - name: Read use_slots from Terraform
+        id: tf
+        working-directory: infra
+        run: |
+          echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
+
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2

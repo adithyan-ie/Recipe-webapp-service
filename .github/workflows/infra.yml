@@ -44,11 +44,3 @@ jobs:
         if: github.ref != 'refs/heads/main'
         run: terraform apply -auto-approve
         working-directory: infra
-
-      - name: Save slot decision
-        run: echo "use_slots=$(terraform output -raw use_slots)" > tf-output.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tf-output
-          path: tf-output.txt
