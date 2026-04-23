@@ -1,6 +1,8 @@
 name: Dev - Test, Build & Deploy (Container)
 
 on:
+  push:
+    branches: [ development ]
   workflow_run:
     workflows: ["terraform Infra"]   # must match the workflow name in terraform.yml
     types:
