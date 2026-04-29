@@ -1,27 +1,32 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
-name: Scan, Run Unit and BDD Test and Build App
+name: Dev - Test, Build & Deploy (Container)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches: [ release ]
   workflow_run:
     workflows: ["terraform Infra"]   # must match the workflow name in terraform.yml
     types:
       - completed
 
 jobs:
-
-  build:
+  code-analysis:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read #This is required for actions/checkout
-
     steps:
+      # 1️⃣ Checkout code
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for Sonar blame info
 
+      # 2️⃣ Set up JDK 17
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+        id: java
+
+      # 3️⃣ Cache Maven dependencies
       - name: Cache Maven
         uses: actions/cache@v4
         with:
@@ -30,22 +35,74 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-m2
 
-      - name: Set up Java version
-        uses: actions/setup-java@v4
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
         with:
-          java-version: '17'
-          distribution: 'microsoft'
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
 
-      - name: Build with Maven
-        run: mvn clean package -DskipTests=true
+      # 7️⃣ SonarCloud scan
+      - name: SonarCloud Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn -B clean verify sonar:sonar \
+            -Dsonar.projectKey=adithyan-ie_Recipe-webapp-service \
+            -Dsonar.organization=adithyan-ie \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.java.binaries=target/classes \
+            -Dsonar.sources=src/main/java \
+            -Dsonar.projectName="Recipe-webapp-service"
 
-      - name: Upload artifact for deployment job
+      - name: Build project
+        run: mvn -B clean install -DskipTests
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "recipe-backend"
+          path: "."
+          format: "HTML"
+          out: "dependency-check-report"
+        env:
+          JAVA_HOME: /opt/jdk
+
+      - name: Upload depedency analysis Report
         uses: actions/upload-artifact@v4
         with:
-          name: recipe-webapp-service
-          path: '${{ github.workspace }}/target/*.jar'
+          name: dependency-check-report
+          path: dependency-check-report
 
-  
+  run-test:
+    needs: code-analysis
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Maven
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run unit tests
+        run: mvn clean test
+
+      - name: Run verify
+        run: mvn verify -DskipTests
+
+      - name: Upload JUnit Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-reports
+          path: target/surefire-reports/*.xml
+
   docker-build-push:
     needs: run-test
     runs-on: ubuntu-latest
@@ -65,7 +122,7 @@ jobs:
       - name: Set image tag
         id: image
         run: |
-          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
       - name: Azure Login
@@ -83,16 +140,33 @@ jobs:
           docker build -t ${{ steps.image.outputs.image }} .
           docker push ${{ steps.image.outputs.image }}
 
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.image.outputs.image }}
+          format: table
+          output: trivy-report.txt
+          exit-code: 0
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Save Trivy report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt  
+
   deploy-prod:
     needs: docker-build-push
     runs-on: ubuntu-latest
 
-    environment:
-     name: production
-
     permissions:
         id-token: write
         contents: read
+
+    environment:
+      name: production
 
     steps:
 
@@ -131,39 +205,39 @@ jobs:
         run: |
           echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
 
-      - name: Swap staging -> production
+      - name: Deploy to slot
+        if: steps.tf.outputs.use_slots == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          slot-name: staging
+          images: ${{ needs.docker-build-push.outputs.image }}
+
+      # Deploy to main app (B1)
+      - name: Deploy to main app
+        if: steps.tf.outputs.use_slots != 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
+
+
+      - name: Restart DEV slot
         if: steps.tf.outputs.use_slots == 'true'
         run: |
-          az webapp deployment slot swap \
+          az webapp restart \
             --name ${{ secrets.AZURE_WEBAPP_NAME }} \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --slot staging \
-            --target-slot production
+            --slot staging
 
-      
-  # deploy-production:
-  # needs: deploy-staging
-  # runs-on: ubuntu-latest
+      - name: Smoke test DEV
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          curl -f https://${{ secrets.AZURE_WEBAPP_NAME }}-dev.azurewebsites.net/actuator/health
 
-  # environment:
-  #   name: production
-
-  # permissions:
-  #   id-token: write
-  #   contents: read
-
-  # steps:
-  #   - name: Azure Login (OIDC)
-  #     uses: azure/login@v2
-  #     with:
-  #       client-id: ${{ secrets.AZURE_CLIENT_ID }}
-  #       tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-  #       subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-  #   - name: Swap staging -> production
-  #     run: |
-  #       az webapp deployment slot swap \
-  #         --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-  #         --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-  #         --slot staging \
-  #         --target-slot production
+      - name: Restart main app
+        if: steps.tf.outputs.use_slots != 'true'
+        run: |
+          az webapp restart \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}

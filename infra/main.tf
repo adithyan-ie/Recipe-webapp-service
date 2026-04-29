@@ -91,7 +91,6 @@ resource "azurerm_linux_web_app" "main" {
   app_settings = {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
     WEBSITES_PORT                       = "8080"
-    SPRING_PROFILES_ACTIVE              = var.spring_profile
   }
 
   logs {
