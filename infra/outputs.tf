@@ -6,18 +6,12 @@ output "resource_group_name" {
 # ── ACR ──────────────────────────────────────
 output "acr_login_server" {
   description = "ACR login server URL — use as AZURE_ACR_SERVER in GitHub Actions"
-  value       = azurerm_container_registry.acr.login_server
+  value       = data.azurerm_container_registry.acr.login_server
 }
 
 output "acr_admin_username" {
   description = "ACR admin username — store as AZURE_ACR_USERNAME secret"
-  value       = azurerm_container_registry.acr.admin_username
-  sensitive   = true
-}
-
-output "acr_admin_password" {
-  description = "ACR admin password — store as AZURE_ACR_PASSWORD secret"
-  value       = azurerm_container_registry.acr.admin_password
+  value       = data.azurerm_container_registry.acr.admin_username
   sensitive   = true
 }
 
@@ -45,8 +39,8 @@ output "github_secrets_summary" {
   value = {
     AZURE_WEBAPP_NAME      = azurerm_linux_web_app.main.name
     AZURE_RESOURCE_GROUP   = azurerm_resource_group.main.name
-    AZURE_ACR_SERVER       = azurerm_container_registry.acr.login_server
-    AZURE_ACR_USERNAME     = azurerm_container_registry.acr.admin_username
+    AZURE_ACR_SERVER       = data.azurerm_container_registry.acr.login_server
+    AZURE_ACR_USERNAME     = data.azurerm_container_registry.acr.admin_username
     # AZURE_ACR_PASSWORD → run: terraform output -raw acr_admin_password
   }
   sensitive = true
