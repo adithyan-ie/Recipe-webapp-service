@@ -4,13 +4,13 @@
 # Add terraform.tfvars to .gitignore.
 # ─────────────────────────────────────────────────────
 
-resource_group_name = "rg-recipe-webapp-dev"
+resource_group_name = "rg-recipe-webapp-prod"
 location            = "switzerlandnorth"
 environment         = "production"
 app_name            = "recipe-backend"
 
 # Must be globally unique across all Azure customers
-webapp_name = "recipe-backend-prd"
+webapp_name = "recipe-backend-prod"
 
 # Must be globally unique, 5-50 alphanumeric chars only
 acr_name = "recipewebappacrdev"
