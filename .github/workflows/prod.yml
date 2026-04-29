@@ -1,4 +1,4 @@
-name: prod - Build & Deploy (Container)
+name: Prod - Build & Deploy (Container)
 
 on:
   push:
