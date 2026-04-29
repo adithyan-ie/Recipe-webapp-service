@@ -37,14 +37,19 @@ resource "azurerm_resource_group" "main" {
 # ─────────────────────────────────────────────
 # Azure Container Registry (ACR)
 # ─────────────────────────────────────────────
-resource "azurerm_container_registry" "acr" {
-  name                = var.acr_name          # globally unique, alphanumeric only
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku                 = var.acr_sku           # Basic | Standard | Premium
-  admin_enabled       = false                  # needed for App Service pull
+# resource "azurerm_container_registry" "acr" {
+#   name                = var.acr_name          # globally unique, alphanumeric only
+#   resource_group_name = azurerm_resource_group.main.name
+#   location            = azurerm_resource_group.main.location
+#   sku                 = var.acr_sku           # Basic | Standard | Premium
+#   admin_enabled       = false                  # needed for App Service pull
 
-  tags = local.common_tags
+#   tags = local.common_tags
+# }
+
+data "azurerm_container_registry" "acr" {
+  name                = var.acr_name
+  resource_group_name = azurerm_resource_group.main.name
 }
 
 # ─────────────────────────────────────────────
@@ -147,24 +152,24 @@ resource "azurerm_linux_web_app_slot" "staging" {
 # # (SystemAssigned identity → AcrPull on the registry)
 # # ─────────────────────────────────────────────
 resource "azurerm_role_assignment" "webapp_acr_pull" {
-  scope                = azurerm_container_registry.acr.id
+  scope                = data.azurerm_container_registry.acr.id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_linux_web_app.main.identity[0].principal_id
 
   depends_on = [
-     azurerm_linux_web_app.main,
-    azurerm_container_registry.acr
+     azurerm_linux_web_app.main
+    # azurerm_container_registry.acr
 ]
 }
 
 resource "azurerm_role_assignment" "staging_acr_pull" {
   count = local.use_slots ? 1 : 0
-  scope                = azurerm_container_registry.acr.id
+  scope                = data.azurerm_container_registry.acr.id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_linux_web_app_slot.staging[0].identity[0].principal_id
 
   depends_on = [
-    azurerm_linux_web_app_slot.staging,
-    azurerm_container_registry.acr
+    azurerm_linux_web_app_slot.staging
+    # azurerm_container_registry.acr
 ]
 }
