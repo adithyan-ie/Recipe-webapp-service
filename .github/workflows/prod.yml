@@ -207,39 +207,47 @@ jobs:
         run: |
           echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
 
-      - name: Deploy to slot
-        if: steps.tf.outputs.use_slots == 'true'
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-          slot-name: staging
-          images: ${{ needs.docker-build-push.outputs.image }}
-
-      # Deploy to main app (B1)
-      - name: Deploy to main app
+      - name: Enable managed identity for ACR pull
         if: steps.tf.outputs.use_slots != 'true'
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ secrets.AZURE_WEBAPP_NAME_PROD }}
-          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}
-
-
-      - name: Restart DEV slot
-        if: steps.tf.outputs.use_slots == 'true'
         run: |
-          az webapp restart \
-            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+          az webapp config set \
+            --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --slot staging
+            --generic-configurations '{"acrUseManagedIdentityCreds": true}'
 
-      - name: Smoke test DEV
-        if: steps.tf.outputs.use_slots == 'true'
+      - name: Deploy to main app
         run: |
-          curl -f https://${{ secrets.AZURE_WEBAPP_NAME }}-dev.azurewebsites.net/actuator/health
+           az webapp config set \
+            --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --linux-fx-version "DOCKER|${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}"
 
       - name: Restart main app
         if: steps.tf.outputs.use_slots != 'true'
         run: |
           az webapp restart \
-            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
+
+
+      - name: Deploy to slot
+        if: steps.tf.outputs.use_slots == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME_PROD }}
+          slot-name: staging
+          images: ${{ needs.docker-build-push.outputs.image }}
+
+
+      - name: Restart Staging slot
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          az webapp restart \
+            --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --slot staging
+
+      - name: Smoke test Stage
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          curl -f https://${{ secrets.AZURE_WEBAPP_NAME_PROD }}-dev.azurewebsites.net/actuator/health

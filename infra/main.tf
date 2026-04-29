@@ -83,6 +83,7 @@ resource "azurerm_linux_web_app" "main" {
 
   site_config {
     always_on = true
+    container_registry_use_managed_identity = true 
 
     # Placeholder image on first apply.
     # GitHub Actions overwrites this on first deploy via az webapp config container set.
@@ -98,6 +99,7 @@ resource "azurerm_linux_web_app" "main" {
 
   app_settings = {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    acrUseManagedIdentityCreds = "true"
     WEBSITES_PORT                       = "8080"
   }
 
@@ -143,6 +145,7 @@ resource "azurerm_linux_web_app_slot" "staging" {
   app_settings = {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
     SPRING_PROFILES_ACTIVE              = "staging"
+    acrUseManagedIdentityCreds = "true"
     WEBSITES_PORT                       = "8080"
   }
 
