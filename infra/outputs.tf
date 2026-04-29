@@ -1,6 +1,6 @@
 output "resource_group_name" {
   description = "Resource group that contains all resources"
-  value       = azurerm_resource_group.main.name
+  value       = data.azurerm_resource_group.main.name
 }
 
 # ── ACR ──────────────────────────────────────
@@ -38,7 +38,7 @@ output "github_secrets_summary" {
   description = "Values to add as GitHub repository secrets"
   value = {
     AZURE_WEBAPP_NAME      = azurerm_linux_web_app.main.name
-    AZURE_RESOURCE_GROUP   = azurerm_resource_group.main.name
+    AZURE_RESOURCE_GROUP   = data.azurerm_resource_group.main.name
     AZURE_ACR_SERVER       = data.azurerm_container_registry.acr.login_server
     AZURE_ACR_USERNAME     = data.azurerm_container_registry.acr.admin_username
     # AZURE_ACR_PASSWORD → run: terraform output -raw acr_admin_password
