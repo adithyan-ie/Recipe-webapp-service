@@ -33,7 +33,7 @@ jobs:
             -backend-config="resource_group_name=rg-tfstate" \
             -backend-config="storage_account_name=sttfstaterecipewebapp" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=recipe-webapp.tfstate"
+            -backend-config="key=prod/recipe-webapp.tfstate"
         working-directory: infra
 
       - name: Terraform Plan
