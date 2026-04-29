@@ -168,6 +168,7 @@ resource "azurerm_role_assignment" "webapp_acr_pull" {
 ]
 }
 
+
 resource "azurerm_role_assignment" "staging_acr_pull" {
   count = local.use_slots ? 1 : 0
   scope                = data.azurerm_container_registry.acr.id
