@@ -89,11 +89,11 @@ resource "azurerm_linux_web_app" "main" {
     # GitHub Actions overwrites this on first deploy via az webapp config container set.
     # lifecycle.ignore_changes ensures Terraform never touches this again after creation.
     application_stack {
-      docker_image_name   = "mcr.microsoft.com/appsvc/staticsite:latest"
-      docker_registry_url = "https://mcr.microsoft.com"
+      docker_image_name   = "eclipse-temurin:17-jre"
+      docker_registry_url = "https://index.docker.io"
     }
 
-    health_check_path                 = "/actuator/health"
+    health_check_path                 = "/actuator/health/readiness"
     health_check_eviction_time_in_min = 2
   }
 
@@ -140,15 +140,46 @@ resource "azurerm_linux_web_app_slot" "staging" {
 
   site_config {
     always_on = true
+    container_registry_use_managed_identity = true 
+
+    # Placeholder image on first apply.
+    # GitHub Actions overwrites this on first deploy via az webapp config container set.
+    # lifecycle.ignore_changes ensures Terraform never touches this again after creation.
+    application_stack {
+      docker_image_name   = "eclipse-temurin:17-jre"
+      docker_registry_url = "https://index.docker.io"
+    }
+
+    health_check_path                 = "/actuator/health/readiness"
+    health_check_eviction_time_in_min = 2
   }
 
   app_settings = {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
-    SPRING_PROFILES_ACTIVE              = "staging"
     acrUseManagedIdentityCreds = "true"
+    container_registry_use_managed_identity = true
     WEBSITES_PORT                       = "8080"
   }
 
+  logs {
+    http_logs {
+      file_system {
+        retention_in_days = 7
+        retention_in_mb   = 35
+      }
+    }
+    application_logs {
+      file_system_level = "Information"
+    }
+  }
+
+  # Terraform owns infrastructure — GitHub Actions owns the image.
+  # After first apply, Terraform will never overwrite the container image.
+  lifecycle {
+    ignore_changes = [
+      site_config[0].application_stack,
+    ]
+  }
 
   tags = local.common_tags
 }

@@ -16,7 +16,7 @@ webapp_name = "recipe-backend-prod"
 acr_name = "recipewebappacrdev"
 
 acr_sku         = "Basic"      # Upgrade to Standard/Premium for geo-replication
-app_service_sku = "B1"       # P1v3 minimum recommended for production + slots
+app_service_sku = "S1"       # P1v3 minimum recommended for production + slots
 
 image_name     = "spring-app:bootstrap"
 

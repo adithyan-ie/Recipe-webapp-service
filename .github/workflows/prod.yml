@@ -208,7 +208,6 @@ jobs:
           echo "use_slots=$(terraform output -raw use_slots)" >> $GITHUB_OUTPUT
 
       - name: Enable managed identity for ACR pull
-        if: steps.tf.outputs.use_slots != 'true'
         run: |
           az webapp config set \
             --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
@@ -216,6 +215,7 @@ jobs:
             --generic-configurations '{"acrUseManagedIdentityCreds": true}'
 
       - name: Deploy to main app
+        if: steps.tf.outputs.use_slots != 'true'
         run: |
            az webapp config set \
             --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
@@ -236,18 +236,20 @@ jobs:
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME_PROD }}
           slot-name: staging
-          images: ${{ needs.docker-build-push.outputs.image }}
-
-
-      - name: Restart Staging slot
-        if: steps.tf.outputs.use_slots == 'true'
-        run: |
-          az webapp restart \
-            --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --slot staging
+          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}
 
       - name: Smoke test Stage
         if: steps.tf.outputs.use_slots == 'true'
         run: |
-          curl -f https://${{ secrets.AZURE_WEBAPP_NAME_PROD }}-dev.azurewebsites.net/actuator/health
+          curl -f https://${{ secrets.AZURE_WEBAPP_NAME_PROD }}-staging.azurewebsites.net/
+
+      - name: Swap staging to production
+        if: steps.tf.outputs.use_slots == 'true'
+        run: |
+          az webapp deployment slot swap \
+            --name ${{ secrets.AZURE_WEBAPP_NAME_PROD }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --slot staging \
+            --target-slot production
+
+     
