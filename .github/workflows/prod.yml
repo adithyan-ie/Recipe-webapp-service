@@ -1,4 +1,4 @@
-name: Dev - Test, Build & Deploy (Container)
+name: prod - Build & Deploy (Container)
 
 on:
   push:
@@ -122,7 +122,7 @@ jobs:
       - name: Set image tag
         id: image
         run: |
-          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
       - name: Azure Login
@@ -219,7 +219,7 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend:${{ github.sha }}
+          images: ${{ secrets.ACR_LOGIN_SERVER }}/recipe-backend-prod:${{ github.sha }}
 
 
       - name: Restart DEV slot
