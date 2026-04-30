@@ -24,34 +24,20 @@ provider "azurerm" {
 }
 
 
-# ─────────────────────────────────────────────
-# Resource Group
-# ─────────────────────────────────────────────
-# resource "azurerm_resource_group" "main" {
-#   name     = var.resource_group_name
-#   location = var.location
-
-#   tags = local.common_tags
-# }
-
 data "azurerm_resource_group" "main" {
   name = var.resource_group_name
 }
 # ─────────────────────────────────────────────
 # Azure Container Registry (ACR)
 # ─────────────────────────────────────────────
-# resource "azurerm_container_registry" "acr" {
-#   name                = var.acr_name          # globally unique, alphanumeric only
-#   resource_group_name = azurerm_resource_group.main.name
-#   location            = azurerm_resource_group.main.location
-#   sku                 = var.acr_sku           # Basic | Standard | Premium
-#   admin_enabled       = false                  # needed for App Service pull
-
-#   tags = local.common_tags
-# }
 
 data "azurerm_container_registry" "acr" {
   name                = var.acr_name
+  resource_group_name = data.azurerm_resource_group.main.name
+}
+
+data "azurerm_key_vault" "kv" {
+  name                = "kv-recipe-webapp"
   resource_group_name = data.azurerm_resource_group.main.name
 }
 
@@ -84,6 +70,7 @@ resource "azurerm_linux_web_app" "main" {
   site_config {
     always_on = true
     container_registry_use_managed_identity = true 
+    
 
     # Placeholder image on first apply.
     # GitHub Actions overwrites this on first deploy via az webapp config container set.
@@ -95,14 +82,17 @@ resource "azurerm_linux_web_app" "main" {
 
     health_check_path                 = "/actuator/health/readiness"
     health_check_eviction_time_in_min = 2
+    
   }
 
   app_settings = {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
     acrUseManagedIdentityCreds = "true"
     WEBSITES_PORT                       = "8080"
+    DATABASE_URL = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault.kv.vault_uri}secrets/database-url/)"
+    DATABASE_NAME = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault.kv.vault_uri}secrets/database-name/)"
+    DATABASE_COLLECTION = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault.kv.vault_uri}secrets/database-collection/)"
   }
-
   logs {
     http_logs {
       file_system {
@@ -157,8 +147,10 @@ resource "azurerm_linux_web_app_slot" "staging" {
   app_settings = {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
     acrUseManagedIdentityCreds = "true"
-    container_registry_use_managed_identity = true
     WEBSITES_PORT                       = "8080"
+    DATABASE_URL = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault.kv.vault_uri}secrets/database-url/)"
+    DATABASE_NAME = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault.kv.vault_uri}secrets/database-name/)"
+    DATABASE_COLLECTION = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault.kv.vault_uri}secrets/database-collection/)"
   }
 
   logs {
@@ -210,4 +202,26 @@ resource "azurerm_role_assignment" "staging_acr_pull" {
     azurerm_linux_web_app_slot.staging
     # azurerm_container_registry.acr
 ]
+}
+
+resource "azurerm_role_assignment" "webapp_kv_access" {
+  scope                = data.azurerm_key_vault.kv.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_linux_web_app.main.identity[0].principal_id
+
+   depends_on = [
+    azurerm_linux_web_app.main
+  ]
+}
+
+resource "azurerm_role_assignment" "staging_kv_access" {
+  count = local.use_slots ? 1 : 0
+
+  scope                = data.azurerm_key_vault.kv.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_linux_web_app_slot.staging[0].identity[0].principal_id
+
+   depends_on = [
+    azurerm_linux_web_app_slot.staging
+  ]
 }
