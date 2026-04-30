@@ -43,25 +43,20 @@ jobs:
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
 
+      # 7️⃣ SonarCloud scan
       - name: SonarCloud Scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=adithyan-ie_Recipe-webapp-service
-
-      # # 7️⃣ SonarCloud scan
-      # - name: SonarCloud Scan
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #   run: |
-      #     mvn -B clean verify sonar:sonar \
-      #       -Dsonar.projectKey=adithyan-ie_Recipe-webapp-service \
-      #       -Dsonar.organization=adithyan-ie \
-      #       -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-      #       -Dsonar.host.url=https://sonarcloud.io \
-      #       -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-      #       -Dsonar.java.binaries=target/classes \
-      #       -Dsonar.sources=src/main/java \
-      #       -Dsonar.projectName="Recipe-webapp-service"
+        run: |
+          mvn -B clean verify sonar:sonar \
+            -Dsonar.projectKey=adithyan-ie_Recipe-webapp-service \
+            -Dsonar.organization=adithyan-ie \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.java.binaries=target/classes \
+            -Dsonar.sources=src/main/java \
+            -Dsonar.projectName="Recipe-webapp-service"
 
       - name: Build project
         run: mvn -B clean install -DskipTests
